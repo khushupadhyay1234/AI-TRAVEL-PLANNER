@@ -1,7 +1,6 @@
 import json
-import re
-import random
 import os
+import random
 from urllib.parse import quote_plus
 
 from langchain_groq import ChatGroq
@@ -11,46 +10,40 @@ from dotenv import load_dotenv
 from tools import get_places, budget_calculator, get_weather
 
 # =========================
-# 🔐 LOAD ENV
+# LOAD ENV
 # =========================
 load_dotenv()
 
 # =========================
-# ✅ LLM (SAFE + HYBRID)
+# LLM
 # =========================
 api_key = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
 
 if not api_key:
-    raise ValueError("❌ GROQ_API_KEY not found. Add it in .env or Streamlit secrets.")
+    raise ValueError("Missing GROQ_API_KEY")
 
 llm = ChatGroq(
-    model="llama3-8b-8192"  # ✅ updated (supported model),
+    model="llama-3.1-8b-instant",
     api_key=api_key,
-    temperature=0.5
+    temperature=0.7
 )
 
 # =========================
-# ✅ CITY EXTRACTION
+# CITY EXTRACTION (SIMPLE)
 # =========================
 def extract_city(query):
-    query_lower = query.lower()
+    words = query.lower().split()
 
-    patterns = [
-        r"trip to ([a-zA-Z ]+)",
-        r"to ([a-zA-Z ]+)",
-        r"in ([a-zA-Z ]+)",
-        r"visit ([a-zA-Z ]+)"
-    ]
+    keywords = ["to", "in", "for", "visit"]
 
-    for pattern in patterns:
-        match = re.search(pattern, query_lower)
-        if match:
-            return match.group(1).strip().title()
+    for i, word in enumerate(words):
+        if word in keywords and i + 1 < len(words):
+            return words[i + 1].title()
 
-    return ""  # no default city
+    return words[-1].title() if words else ""
 
 # =========================
-# ✅ JSON PARSER (ROBUST)
+# JSON PARSER
 # =========================
 def extract_json(text):
     if hasattr(text, "content"):
@@ -59,16 +52,10 @@ def extract_json(text):
     try:
         return json.loads(text)
     except:
-        match = re.search(r'\{.*\}', text, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group())
-            except:
-                pass
-    return {}
+        return {}
 
 # =========================
-# ✅ MAP LINKS
+# MAP LINKS
 # =========================
 def generate_map_links(places):
     return [
@@ -77,70 +64,17 @@ def generate_map_links(places):
     ]
 
 # =========================
-# 🔥 ENSURE STRUCTURE
-# =========================
-def ensure_structure(data, city, places, weather, budget):
-    if not isinstance(data, dict):
-        data = {}
-
-    place_list = places.get("places", []) if isinstance(places, dict) else []
-    names = [p["name"] for p in place_list]
-
-    itinerary = data.get("itinerary", {})
-
-    day1 = itinerary.get("day1", [])
-    day2 = itinerary.get("day2", [])
-
-    if not day1:
-        day1 = names[:2]
-
-    if not day2:
-        day2 = names[2:4]
-
-    day2 = [p for p in day2 if p not in day1]
-
-    if not day2:
-        remaining = [p for p in names if p not in day1]
-        random.shuffle(remaining)
-        day2 = remaining[:2]
-
-    remaining = [p for p in names if p not in day1 and p not in day2]
-
-    while len(day2) < 2 and remaining:
-        day2.append(remaining.pop())
-
-    while len(day2) < 2 and len(day1) > 1:
-        day2.append(day1.pop())
-
-    day1 = day1[:2]
-    day2 = day2[:2]
-
-    data["itinerary"] = {
-        "day1": day1,
-        "day2": day2
-    }
-
-    data["budget"] = budget
-    data["weather"] = weather
-
-    data.setdefault("tips", [
-        "Start early to cover more places",
-        "Carry water and essentials",
-        "Check local transport options"
-    ])
-
-    return data
-
-# =========================
-# 🚀 MAIN AGENT
+# MAIN AGENT
 # =========================
 def run_agent(query):
     try:
         city = extract_city(query)
 
+        if not city:
+            return {"error": "Could not detect city."}
+
         places = get_places(city)
 
-        # 🔥 FLEXIBLE PARSING (handles list or dict)
         place_list = places if isinstance(places, list) else places.get("places", [])
 
         place_names = []
@@ -150,25 +84,19 @@ def run_agent(query):
             elif isinstance(p, str):
                 place_names.append(p)
 
-        # 🔥 FALLBACK (never fail)
         if not place_names:
-            return {"error": f"No places found for {city}. Try another city."}
+            return {"error": f"No places found for {city}"}
 
         weather = get_weather(city)
         budget = budget_calculator(5000, 2)
 
         prompt = f"""
-Plan a 2-day trip.
+Plan a 2-day trip for {city}.
 
-City: {city}
-Places: {place_names}
+Use only these places:
+{place_names}
 
-IMPORTANT:
-- Do NOT repeat places across days
-- Distribute places evenly across days
-- Each day should have different places
-
-Return ONLY JSON:
+Return JSON:
 {{
   "itinerary": {{
     "day1": ["place1", "place2"],
@@ -182,14 +110,21 @@ Return ONLY JSON:
         data = extract_json(response)
 
         if not data:
-            return {"error": "⚠️ AI failed to generate valid plan. Try again."}
+            return {"error": "AI failed to generate response"}
 
-        data = ensure_structure(data, city, places, weather, budget)
+        # fallback structure
+        day1 = data.get("itinerary", {}).get("day1", place_names[:2])
+        day2 = data.get("itinerary", {}).get("day2", place_names[2:4])
 
-        all_places = list(set(
-            data["itinerary"]["day1"] + data["itinerary"]["day2"]
-        ))
+        data["itinerary"] = {
+            "day1": day1,
+            "day2": day2
+        }
 
+        data["budget"] = budget
+        data["weather"] = weather
+
+        all_places = list(set(day1 + day2))
         data["maps"] = generate_map_links(all_places)
 
         return data

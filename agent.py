@@ -16,17 +16,17 @@ from tools import get_places, budget_calculator, get_weather
 load_dotenv()
 
 # =========================
-# ✅ LLM (LATEST WORKING MODEL)
+# ✅ LLM
 # =========================
 api_key = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
 
 if not api_key:
-    raise ValueError("❌ GROQ_API_KEY not found. Add it in .env or Streamlit secrets.")
+    raise ValueError("❌ GROQ_API_KEY not found")
 
 llm = ChatGroq(
-    model="llama-3.1-8b-instant",   # ✅ latest stable
+    model="llama-3.1-8b-instant",
     api_key=api_key,
-    temperature=0.5
+    temperature=0.7   # 🔥 slightly higher = more variation
 )
 
 # =========================
@@ -95,13 +95,13 @@ def ensure_structure(data, city, places, weather, budget):
         elif isinstance(p, str):
             names.append(p)
 
-    # 🔥 fallback
+    # 🔥 fallback if API fails
     if not names:
         names = [
-            f"Popular places in {city}",
-            f"Tourist attractions in {city}",
-            f"Local markets in {city}",
-            f"Hidden gems in {city}"
+            f"{city} Fort",
+            f"{city} Beach",
+            f"{city} Market",
+            f"{city} Temple"
         ]
 
     itinerary = data.get("itinerary", {})
@@ -142,9 +142,9 @@ def ensure_structure(data, city, places, weather, budget):
     data["weather"] = weather
 
     data.setdefault("tips", [
-        "Start early to cover more places",
-        "Carry water and essentials",
-        "Check local transport options"
+        f"Explore local culture of {city}",
+        "Start early to avoid crowds",
+        "Try local food specialties"
     ])
 
     return data
@@ -157,9 +157,9 @@ def run_agent(query):
     try:
         city = extract_city(query)
 
+        # 🔥 GET PLACES
         places = get_places(city)
 
-        # 🔥 FLEXIBLE PARSING
         place_list = places if isinstance(places, list) else places.get("places", [])
 
         place_names = []
@@ -169,28 +169,36 @@ def run_agent(query):
             elif isinstance(p, str):
                 place_names.append(p)
 
-        # 🔥 fallback
+        # 🔥 fallback (IMPORTANT)
         if not place_names:
             place_names = [
-                f"Popular places in {city}",
-                f"Tourist attractions in {city}",
-                f"Local markets in {city}",
-                f"Hidden gems in {city}"
+                f"{city} Fort",
+                f"{city} Beach",
+                f"{city} Market",
+                f"{city} Temple"
             ]
+
+        # DEBUG (optional)
+        print("CITY:", city)
+        print("PLACES:", place_names)
 
         weather = get_weather(city)
         budget = budget_calculator(5000, 2)
 
+        # 🔥 STRONG PROMPT (fix repetition issue)
         prompt = f"""
-Plan a 2-day trip.
+You are a travel expert.
 
-City: {city}
-Places: {place_names}
+Plan a UNIQUE 2-day trip for {city}.
 
-IMPORTANT:
-- Do NOT repeat places across days
-- Distribute places evenly across days
-- Each day should have different places
+Available places:
+{place_names}
+
+Rules:
+- Use ONLY places from the list
+- Do NOT repeat places
+- Make itinerary specific to {city}
+- Avoid generic suggestions
 
 Return ONLY JSON:
 {{
@@ -206,7 +214,7 @@ Return ONLY JSON:
         data = extract_json(response)
 
         if not data:
-            return {"error": "⚠️ AI failed to generate valid plan. Try again."}
+            return {"error": "⚠️ AI failed. Try again."}
 
         data = ensure_structure(data, city, places, weather, budget)
 

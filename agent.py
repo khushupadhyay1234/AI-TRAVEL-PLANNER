@@ -16,7 +16,7 @@ from tools import get_places, budget_calculator, get_weather
 load_dotenv()
 
 # =========================
-# ✅ LLM (SAFE + HYBRID)
+# ✅ LLM (LATEST WORKING MODEL)
 # =========================
 api_key = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
 
@@ -24,7 +24,7 @@ if not api_key:
     raise ValueError("❌ GROQ_API_KEY not found. Add it in .env or Streamlit secrets.")
 
 llm = ChatGroq(
-    model="llama-3.1-8b-instant"
+    model="llama-3.1-8b-instant",   # ✅ latest stable
     api_key=api_key,
     temperature=0.5
 )
@@ -49,8 +49,9 @@ def extract_city(query):
 
     return "Goa"
 
+
 # =========================
-# ✅ JSON PARSER (ROBUST)
+# ✅ JSON PARSER
 # =========================
 def extract_json(text):
     if hasattr(text, "content"):
@@ -67,6 +68,7 @@ def extract_json(text):
                 pass
     return {}
 
+
 # =========================
 # ✅ MAP LINKS
 # =========================
@@ -76,6 +78,7 @@ def generate_map_links(places):
         for p in places
     ]
 
+
 # =========================
 # 🔥 ENSURE STRUCTURE
 # =========================
@@ -83,8 +86,23 @@ def ensure_structure(data, city, places, weather, budget):
     if not isinstance(data, dict):
         data = {}
 
-    place_list = places.get("places", []) if isinstance(places, dict) else []
-    names = [p["name"] for p in place_list]
+    place_list = places if isinstance(places, list) else places.get("places", [])
+
+    names = []
+    for p in place_list:
+        if isinstance(p, dict) and "name" in p:
+            names.append(p["name"])
+        elif isinstance(p, str):
+            names.append(p)
+
+    # 🔥 fallback
+    if not names:
+        names = [
+            f"Popular places in {city}",
+            f"Tourist attractions in {city}",
+            f"Local markets in {city}",
+            f"Hidden gems in {city}"
+        ]
 
     itinerary = data.get("itinerary", {})
 
@@ -131,6 +149,7 @@ def ensure_structure(data, city, places, weather, budget):
 
     return data
 
+
 # =========================
 # 🚀 MAIN AGENT
 # =========================
@@ -140,7 +159,7 @@ def run_agent(query):
 
         places = get_places(city)
 
-        # 🔥 FLEXIBLE PARSING (handles list or dict)
+        # 🔥 FLEXIBLE PARSING
         place_list = places if isinstance(places, list) else places.get("places", [])
 
         place_names = []
@@ -150,7 +169,7 @@ def run_agent(query):
             elif isinstance(p, str):
                 place_names.append(p)
 
-        # 🔥 FALLBACK (never fail)
+        # 🔥 fallback
         if not place_names:
             place_names = [
                 f"Popular places in {city}",

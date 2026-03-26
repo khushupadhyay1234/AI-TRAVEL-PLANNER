@@ -1,17 +1,19 @@
-from langchain_community.llms import Ollama
 import json
 import re
 import random
 from urllib.parse import quote_plus
 
+from langchain_groq import ChatGroq
+import streamlit as st
+
 from tools import get_places, budget_calculator, get_weather
 
 # =========================
-# ✅ LLM
+# ✅ LLM (GROQ - DEPLOY SAFE)
 # =========================
-llm = Ollama(
-    model="mistral",
-    base_url="http://127.0.0.1:11434",
+llm = ChatGroq(
+    model="llama3-70b-8192",   # 🔥 best for hackathon
+    api_key=st.secrets["GROQ_API_KEY"],
     temperature=0.5
 )
 
@@ -33,13 +35,16 @@ def extract_city(query):
         if match:
             return match.group(1).strip().title()
 
-    return "Goa"  # fallback
+    return "Goa"
 
 
 # =========================
-# ✅ JSON PARSER
+# ✅ JSON PARSER (IMPROVED)
 # =========================
 def extract_json(text):
+    if hasattr(text, "content"):   # 🔥 GROQ FIX
+        text = text.content
+
     try:
         return json.loads(text)
     except:
@@ -63,13 +68,12 @@ def generate_map_links(places):
 
 
 # =========================
-# 🔥 ENSURE STRUCTURE (FINAL + BALANCED)
+# 🔥 ENSURE STRUCTURE
 # =========================
 def ensure_structure(data, city, places, weather, budget):
     if not isinstance(data, dict):
         data = {}
 
-    # ✅ Extract places
     place_list = places.get("places", []) if isinstance(places, dict) else []
     names = [p["name"] for p in place_list]
 
@@ -78,36 +82,27 @@ def ensure_structure(data, city, places, weather, budget):
     day1 = itinerary.get("day1", [])
     day2 = itinerary.get("day2", [])
 
-    # 🔁 Fallback if LLM fails
     if not day1:
         day1 = names[:2]
 
     if not day2:
         day2 = names[2:4]
 
-    # 🚫 Remove duplicates
     day2 = [p for p in day2 if p not in day1]
 
-    # 🔥 Refill if empty
     if not day2:
         remaining = [p for p in names if p not in day1]
         random.shuffle(remaining)
         day2 = remaining[:2]
 
-    # =========================
-    # 🎯 FINAL BALANCING LOGIC
-    # =========================
     remaining = [p for p in names if p not in day1 and p not in day2]
 
-    # Fill day2 if less than 2
     while len(day2) < 2 and remaining:
         day2.append(remaining.pop())
 
-    # Borrow from day1 if needed
     while len(day2) < 2 and len(day1) > 1:
         day2.append(day1.pop())
 
-    # Final trim
     day1 = day1[:2]
     day2 = day2[:2]
 
@@ -116,13 +111,9 @@ def ensure_structure(data, city, places, weather, budget):
         "day2": day2
     }
 
-    # 💰 Budget
     data["budget"] = budget
-
-    # 🌦 Weather
     data["weather"] = weather
 
-    # 💡 Tips
     data.setdefault("tips", [
         "Start early to cover more places",
         "Carry water and essentials",
@@ -139,19 +130,13 @@ def run_agent(query):
     try:
         city = extract_city(query)
 
-        # 🔥 TOOL CALLS
         places = get_places(city)
         place_list = places.get("places", [])
         place_names = [p["name"] for p in place_list]
 
         weather = get_weather(city)
-
-        # 💰 Realistic budget
         budget = budget_calculator(5000, 2)
 
-        # =========================
-        # 🤖 LLM
-        # =========================
         prompt = f"""
 Plan a 2-day trip.
 
@@ -174,28 +159,18 @@ Return ONLY JSON:
 """
 
         response = llm.invoke(prompt)
+
         data = extract_json(response)
 
-        # 🔥 Ensure structure
         data = ensure_structure(data, city, places, weather, budget)
 
-        # 🗺 Map links (unique)
         all_places = list(set(
             data["itinerary"]["day1"] + data["itinerary"]["day2"]
         ))
+
         data["maps"] = generate_map_links(all_places)
 
         return data
 
     except Exception as e:
         return {"error": str(e)}
-
-
-# =========================
-# 🧪 TEST RUN
-# =========================
-if __name__ == "__main__":
-    query = input("Enter your trip query: ")
-    result = run_agent(query)
-
-    print("\nDEBUG OUTPUT:\n", result)

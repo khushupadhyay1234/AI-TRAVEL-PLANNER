@@ -92,4 +92,4 @@ Built an AI-powered travel planner using LangChain agents with tool-based reason
 
 ## 👨‍💻 Author
 
-Your Name
+Khush Upadhyay

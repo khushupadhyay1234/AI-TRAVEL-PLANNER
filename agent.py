@@ -24,7 +24,7 @@ if not api_key:
     raise ValueError("❌ GROQ_API_KEY not found. Add it in .env or Streamlit secrets.")
 
 llm = ChatGroq(
-    model="llama3-70b-8192",
+    model="llama-3.1-8b-instant"
     api_key=api_key,
     temperature=0.5
 )

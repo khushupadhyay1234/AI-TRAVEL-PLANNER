@@ -1,13 +1,11 @@
 import json
+import re
 import os
-import random
 from urllib.parse import quote_plus
 
 from langchain_groq import ChatGroq
 import streamlit as st
 from dotenv import load_dotenv
-
-from tools import get_places, budget_calculator, get_weather
 
 # =========================
 # LOAD ENV
@@ -29,11 +27,10 @@ llm = ChatGroq(
 )
 
 # =========================
-# CITY EXTRACTION (SIMPLE)
+# CITY EXTRACTION
 # =========================
 def extract_city(query):
     words = query.lower().split()
-
     keywords = ["to", "in", "for", "visit"]
 
     for i, word in enumerate(words):
@@ -41,6 +38,32 @@ def extract_city(query):
             return words[i + 1].title()
 
     return words[-1].title() if words else ""
+
+# =========================
+# GET PLACES (AI BASED 🔥)
+# =========================
+def get_places(city):
+    try:
+        prompt = f"""
+Give 6 famous tourist places in {city}.
+
+Return ONLY JSON list:
+["place1", "place2", "place3", "place4", "place5", "place6"]
+"""
+
+        response = llm.invoke(prompt)
+        text = response.content if hasattr(response, "content") else response
+
+        match = re.search(r'\[.*\]', text, re.DOTALL)
+        if match:
+            places = json.loads(match.group())
+        else:
+            places = []
+
+        return places
+
+    except:
+        return []
 
 # =========================
 # JSON PARSER
@@ -52,7 +75,13 @@ def extract_json(text):
     try:
         return json.loads(text)
     except:
-        return {}
+        match = re.search(r'\{.*\}', text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group())
+            except:
+                pass
+    return {}
 
 # =========================
 # MAP LINKS
@@ -71,32 +100,20 @@ def run_agent(query):
         city = extract_city(query)
 
         if not city:
-            return {"error": "Could not detect city."}
+            return {"error": "Could not detect city"}
 
         places = get_places(city)
 
-        place_list = places if isinstance(places, list) else places.get("places", [])
-
-        place_names = []
-        for p in place_list:
-            if isinstance(p, dict) and "name" in p:
-                place_names.append(p["name"])
-            elif isinstance(p, str):
-                place_names.append(p)
-
-        if not place_names:
+        if not places:
             return {"error": f"No places found for {city}"}
 
-        weather = get_weather(city)
-        budget = budget_calculator(5000, 2)
-
         prompt = f"""
-Plan a 2-day trip for {city}.
+Plan a UNIQUE 2-day trip for {city}.
 
-Use only these places:
-{place_names}
+Use ONLY these places:
+{places}
 
-Return JSON:
+Return ONLY JSON:
 {{
   "itinerary": {{
     "day1": ["place1", "place2"],
@@ -112,22 +129,27 @@ Return JSON:
         if not data:
             return {"error": "AI failed to generate response"}
 
-        # fallback structure
-        day1 = data.get("itinerary", {}).get("day1", place_names[:2])
-        day2 = data.get("itinerary", {}).get("day2", place_names[2:4])
+        day1 = data.get("itinerary", {}).get("day1", places[:2])
+        day2 = data.get("itinerary", {}).get("day2", places[2:4])
 
-        data["itinerary"] = {
-            "day1": day1,
-            "day2": day2
+        result = {
+            "itinerary": {
+                "day1": day1,
+                "day2": day2
+            },
+            "budget": {
+                "per_day": 2500,
+                "stay": 1000,
+                "food": 750,
+                "travel": 750,
+                "category": "Mid-range"
+            },
+            "weather": {"description": "Moderate", "temperature": 25},
+            "tips": data.get("tips", ["Explore local culture", "Start early"]),
+            "maps": generate_map_links(list(set(day1 + day2)))
         }
 
-        data["budget"] = budget
-        data["weather"] = weather
-
-        all_places = list(set(day1 + day2))
-        data["maps"] = generate_map_links(all_places)
-
-        return data
+        return result
 
     except Exception as e:
         return {"error": str(e)}

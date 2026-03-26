@@ -16,17 +16,17 @@ from tools import get_places, budget_calculator, get_weather
 load_dotenv()
 
 # =========================
-# ✅ LLM
+# ✅ LLM (SAFE + HYBRID)
 # =========================
 api_key = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
 
 if not api_key:
-    raise ValueError("GROQ_API_KEY missing")
+    raise ValueError("❌ GROQ_API_KEY not found. Add it in .env or Streamlit secrets.")
 
 llm = ChatGroq(
-    model="llama-3.1-8b-instant",
+    model="llama3-8b-8192"  # ✅ updated (supported model),
     api_key=api_key,
-    temperature=0.7
+    temperature=0.5
 )
 
 # =========================
@@ -47,11 +47,10 @@ def extract_city(query):
         if match:
             return match.group(1).strip().title()
 
-    return "Goa"
-
+    return ""  # no default city
 
 # =========================
-# ✅ JSON PARSER
+# ✅ JSON PARSER (ROBUST)
 # =========================
 def extract_json(text):
     if hasattr(text, "content"):
@@ -68,7 +67,6 @@ def extract_json(text):
                 pass
     return {}
 
-
 # =========================
 # ✅ MAP LINKS
 # =========================
@@ -78,16 +76,15 @@ def generate_map_links(places):
         for p in places
     ]
 
-
 # =========================
-# 🔥 ENSURE STRUCTURE (FIXED)
+# 🔥 ENSURE STRUCTURE
 # =========================
-def ensure_structure(data, city, place_names, weather, budget):
+def ensure_structure(data, city, places, weather, budget):
     if not isinstance(data, dict):
         data = {}
 
-    # 👉 USE place_names DIRECTLY (IMPORTANT FIX)
-    names = place_names
+    place_list = places.get("places", []) if isinstance(places, dict) else []
+    names = [p["name"] for p in place_list]
 
     itinerary = data.get("itinerary", {})
 
@@ -107,7 +104,14 @@ def ensure_structure(data, city, place_names, weather, budget):
         random.shuffle(remaining)
         day2 = remaining[:2]
 
-    # final trim
+    remaining = [p for p in names if p not in day1 and p not in day2]
+
+    while len(day2) < 2 and remaining:
+        day2.append(remaining.pop())
+
+    while len(day2) < 2 and len(day1) > 1:
+        day2.append(day1.pop())
+
     day1 = day1[:2]
     day2 = day2[:2]
 
@@ -120,24 +124,23 @@ def ensure_structure(data, city, place_names, weather, budget):
     data["weather"] = weather
 
     data.setdefault("tips", [
-        f"Explore the culture of {city}",
-        "Start early to avoid crowds",
-        "Try local food"
+        "Start early to cover more places",
+        "Carry water and essentials",
+        "Check local transport options"
     ])
 
     return data
 
-
 # =========================
-# 🚀 MAIN AGENT (FIXED)
+# 🚀 MAIN AGENT
 # =========================
 def run_agent(query):
     try:
         city = extract_city(query)
 
-        # 🔥 GET PLACES
         places = get_places(city)
 
+        # 🔥 FLEXIBLE PARSING (handles list or dict)
         place_list = places if isinstance(places, list) else places.get("places", [])
 
         place_names = []
@@ -147,34 +150,23 @@ def run_agent(query):
             elif isinstance(p, str):
                 place_names.append(p)
 
-        # 🔥 FALLBACK (CITY BASED)
+        # 🔥 FALLBACK (never fail)
         if not place_names:
-            place_names = [
-                f"{city} Fort",
-                f"{city} Lake",
-                f"{city} Temple",
-                f"{city} Market"
-            ]
-
-        print("CITY:", city)
-        print("PLACES:", place_names)
+            return {"error": f"No places found for {city}. Try another city."}
 
         weather = get_weather(city)
         budget = budget_calculator(5000, 2)
 
-        # 🔥 BETTER PROMPT
         prompt = f"""
-You are a travel expert.
+Plan a 2-day trip.
 
-Plan a UNIQUE 2-day trip for {city}.
+City: {city}
+Places: {place_names}
 
-Use these places:
-{place_names}
-
-Rules:
-- Use ONLY given places
-- No repetition
-- Make it city-specific
+IMPORTANT:
+- Do NOT repeat places across days
+- Distribute places evenly across days
+- Each day should have different places
 
 Return ONLY JSON:
 {{
@@ -190,10 +182,9 @@ Return ONLY JSON:
         data = extract_json(response)
 
         if not data:
-            return {"error": "AI failed. Try again."}
+            return {"error": "⚠️ AI failed to generate valid plan. Try again."}
 
-        # 🔥 PASS place_names (IMPORTANT FIX)
-        data = ensure_structure(data, city, place_names, weather, budget)
+        data = ensure_structure(data, city, places, weather, budget)
 
         all_places = list(set(
             data["itinerary"]["day1"] + data["itinerary"]["day2"]

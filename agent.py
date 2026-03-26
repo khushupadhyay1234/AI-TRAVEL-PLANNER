@@ -1,19 +1,31 @@
 import json
 import re
 import random
+import os
 from urllib.parse import quote_plus
 
 from langchain_groq import ChatGroq
 import streamlit as st
+from dotenv import load_dotenv
 
 from tools import get_places, budget_calculator, get_weather
 
 # =========================
-# ✅ LLM (GROQ - DEPLOY SAFE)
+# 🔐 LOAD ENV
 # =========================
+load_dotenv()
+
+# =========================
+# ✅ LLM (SAFE + HYBRID)
+# =========================
+api_key = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
+
+if not api_key:
+    raise ValueError("❌ GROQ_API_KEY not found. Add it in .env or Streamlit secrets.")
+
 llm = ChatGroq(
-    model="llama3-70b-8192",   # 🔥 best for hackathon
-    api_key=st.secrets["GROQ_API_KEY"],
+    model="llama3-70b-8192",
+    api_key=api_key,
     temperature=0.5
 )
 
@@ -37,12 +49,11 @@ def extract_city(query):
 
     return "Goa"
 
-
 # =========================
-# ✅ JSON PARSER (IMPROVED)
+# ✅ JSON PARSER (ROBUST)
 # =========================
 def extract_json(text):
-    if hasattr(text, "content"):   # 🔥 GROQ FIX
+    if hasattr(text, "content"):
         text = text.content
 
     try:
@@ -56,7 +67,6 @@ def extract_json(text):
                 pass
     return {}
 
-
 # =========================
 # ✅ MAP LINKS
 # =========================
@@ -65,7 +75,6 @@ def generate_map_links(places):
         f"https://www.google.com/maps/search/{quote_plus(p)}"
         for p in places
     ]
-
 
 # =========================
 # 🔥 ENSURE STRUCTURE
@@ -122,7 +131,6 @@ def ensure_structure(data, city, places, weather, budget):
 
     return data
 
-
 # =========================
 # 🚀 MAIN AGENT
 # =========================
@@ -133,6 +141,9 @@ def run_agent(query):
         places = get_places(city)
         place_list = places.get("places", [])
         place_names = [p["name"] for p in place_list]
+
+        if not place_names:
+            return {"error": "No places found for this city."}
 
         weather = get_weather(city)
         budget = budget_calculator(5000, 2)
@@ -159,8 +170,10 @@ Return ONLY JSON:
 """
 
         response = llm.invoke(prompt)
-
         data = extract_json(response)
+
+        if not data:
+            return {"error": "⚠️ AI failed to generate valid plan. Try again."}
 
         data = ensure_structure(data, city, places, weather, budget)
 

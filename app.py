@@ -4,13 +4,13 @@ from agent import run_agent
 st.set_page_config(page_title="AI Travel Planner", page_icon="🌍")
 
 st.title("🌍 AI Travel Planner")
-st.write("✨ Powered by AI Agents + LangChain")
+st.write("✨ Powered by AI Agents")
 
 query = st.text_input("Enter your travel plan:")
 
 if st.button("Generate Plan"):
     if query:
-        with st.spinner("🧠 Planning your trip..."):
+        with st.spinner("Planning your trip..."):
             data = run_agent(query)
 
         if "error" in data:
@@ -22,22 +22,21 @@ if st.button("Generate Plan"):
 
             with col1:
                 st.markdown("### Day 1")
-                for place in data["itinerary"]["day1"]:
-                    st.success(place)
+                for p in data["itinerary"]["day1"]:
+                    st.success(p)
 
             with col2:
                 st.markdown("### Day 2")
-                for place in data["itinerary"]["day2"]:
-                    st.success(place)
+                for p in data["itinerary"]["day2"]:
+                    st.success(p)
 
             st.subheader("💰 Budget")
             b = data["budget"]
 
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Per Day", f"₹{b['per_day']}")
-            col2.metric("Stay", f"₹{b['stay']}")
-            col3.metric("Food", f"₹{b['food']}")
-            col4.metric("Travel", f"₹{b['travel']}")
+            st.write(f"Per Day: ₹{b['per_day']}")
+            st.write(f"Stay: ₹{b['stay']}")
+            st.write(f"Food: ₹{b['food']}")
+            st.write(f"Travel: ₹{b['travel']}")
 
             st.subheader("💡 Tips")
             for tip in data["tips"]:
@@ -48,4 +47,4 @@ if st.button("Generate Plan"):
                 st.markdown(f"[Open Map]({link})")
 
     else:
-        st.warning("Enter something!")
+        st.warning("Enter something")
